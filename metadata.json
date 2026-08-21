@@ -1,0 +1,6 @@
+{
+  "name": "Judicial Document Archive & Case Proceedings System",
+  "description": "Institutional agency-grade judicial archive with cryptographically chained immutable audit logging, server-side RBAC, proceedings timelines, and secure document registry.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
