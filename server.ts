@@ -133,7 +133,7 @@ app.get('/api/stats', (req, res) => {
     audit_chain_valid: auditVerification.is_valid,
     recent_cases: accessibleCases.slice(0, 5),
     recent_proceedings: allProceedings.slice(0, 5),
-    recent_audit_logs: auditService.getLogs().slice(0, 6)
+    recent_audit_logs: auditService.getLogs({ limit: 6 })
   });
 });
 
@@ -150,7 +150,9 @@ app.get('/api/cases', (req, res) => {
     status,
     isSealed,
     startDate,
-    endDate
+    endDate,
+    page,
+    limit
   } = req.query;
 
   const rawCases = db.getCases({
@@ -170,7 +172,18 @@ app.get('/api/cases', (req, res) => {
     return access.allowed;
   });
 
-  res.json({ cases: authorizedCases, count: authorizedCases.length });
+  const requestedPage = Math.max(1, Number(page) || 1);
+  const requestedLimit = Math.min(Math.max(1, Number(limit) || 25), 200);
+  const startIndex = (requestedPage - 1) * requestedLimit;
+  const pagedCases = authorizedCases.slice(startIndex, startIndex + requestedLimit);
+
+  res.json({
+    cases: pagedCases,
+    count: authorizedCases.length,
+    page: requestedPage,
+    limit: requestedLimit,
+    totalPages: Math.max(1, Math.ceil(authorizedCases.length / requestedLimit))
+  });
 });
 
 app.get('/api/cases/:id', (req, res) => {
@@ -214,7 +227,7 @@ app.get('/api/cases/:id', (req, res) => {
 
   const proceedings = db.getProceedingsByCaseId(caseRecord.id);
   const documents = db.getDocuments({ attachableType: 'Case', attachableId: caseRecord.id });
-  const caseAuditLogs = auditService.getLogs({ targetId: caseRecord.id });
+  const caseAuditLogs = auditService.getLogs({ targetId: caseRecord.id, limit: 50 });
   const availableTransitions = getAvailableCaseTransitions(caseRecord.status);
 
   res.json({
@@ -385,6 +398,10 @@ app.post('/api/cases/batch-transition', (req, res) => {
 
   if (!Array.isArray(caseIds) || caseIds.length === 0) {
     return res.status(400).json({ error: 'INVALID_REQUEST', message: 'caseIds must be a non-empty array.' });
+  }
+
+  if (caseIds.length > 100) {
+    return res.status(400).json({ error: 'BATCH_TOO_LARGE', message: 'A batch may contain at most 100 case IDs.' });
   }
 
   if (!targetStatus) {
@@ -567,9 +584,21 @@ app.delete('/api/cases/:id', requireRoles('chief_registrar', 'system_admin'), (r
 // 4. CASE PROCEEDINGS & SESSION TRANSCRIPTS
 // -----------------------------------------------------------------------
 app.get('/api/proceedings', (req, res) => {
-  const user = req.currentUser!;
+  const { page, limit } = req.query;
   const all = db.getAllProceedings();
-  res.json({ proceedings: all });
+
+  const requestedPage = Math.max(1, Number(page) || 1);
+  const requestedLimit = Math.min(Math.max(1, Number(limit) || 25), 200);
+  const startIndex = (requestedPage - 1) * requestedLimit;
+  const pagedProceedings = all.slice(startIndex, startIndex + requestedLimit);
+
+  res.json({
+    proceedings: pagedProceedings,
+    count: all.length,
+    page: requestedPage,
+    limit: requestedLimit,
+    totalPages: Math.max(1, Math.ceil(all.length / requestedLimit))
+  });
 });
 
 app.post('/api/cases/:id/proceedings', requireRoles('chief_registrar', 'judge', 'clerk', 'system_admin'), (req, res) => {
@@ -936,14 +965,16 @@ app.get('/api/documents/:id/preview', (req, res) => {
 // 6. CRYPTOGRAPHIC AUDIT LEDGER & VERIFICATION SUITE
 // -----------------------------------------------------------------------
 app.get('/api/audit-logs', (req, res) => {
-  const { userId, action, targetType, targetId, startDate, endDate } = req.query;
+  const { userId, action, targetType, targetId, startDate, endDate, page, limit } = req.query;
   const logs = auditService.getLogs({
     userId: userId as string,
     action: action as string,
     targetType: targetType as string,
     targetId: targetId as string,
     startDate: startDate as string,
-    endDate: endDate as string
+    endDate: endDate as string,
+    page: Number(page) || 1,
+    limit: Number(limit) || 50
   });
 
   // Populate user names for display
@@ -994,7 +1025,7 @@ app.post('/api/audit-logs/tamper-test', requireRoles('chief_registrar', 'auditor
   } else if (action === 'restore') {
     const restoreResult = auditService.restoreOriginalChain();
     res.json({
-      message: 'Original cryptographic audit chain restored to pristine verified state.',
+      message: 'Original audit chain restored to pristine verified state.',
       result: restoreResult
     });
   } else {
