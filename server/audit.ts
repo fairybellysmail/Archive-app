@@ -91,6 +91,8 @@ class CryptographicAuditService {
     targetId?: string;
     startDate?: string;
     endDate?: string;
+    page?: number;
+    limit?: number;
   }): AuditLog[] {
     let result = [...this.logs];
 
@@ -115,7 +117,15 @@ class CryptographicAuditService {
       }
     }
 
-    return result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const sorted = result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    const page = Number.isFinite(filters?.page) ? Number(filters!.page) : 1;
+    const limit = Number.isFinite(filters?.limit) ? Number(filters!.limit) : 50;
+    const safePage = page > 0 ? page : 1;
+    const safeLimit = limit > 0 ? Math.min(limit, 500) : 50;
+    const offset = (safePage - 1) * safeLimit;
+
+    return sorted.slice(offset, offset + safeLimit);
   }
 
   /**
@@ -179,7 +189,7 @@ class CryptographicAuditService {
           head_hash: this.logs[this.logs.length - 1].current_hash,
           broken_block_index: i,
           broken_block_id: currentBlock.id,
-          failure_reason: `Hash mismatch at Block #${i + 1} (${currentBlock.id.substring(0, 8)}...). Stored hash '${currentBlock.current_hash}' does not match computed SHA-256 '${calculatedHash}'. Payload or timestamp was modified!`,
+          failure_reason: `Hash mismatch at Block #${i + 1} (${currentBlock.id.substring(0, 8)}...). Stored hash '${currentBlock.current_hash}' does not match computed SHA-256 '${calculatedHash}'.`,
           verification_time_ms: Number((performance.now() - startTime).toFixed(2)),
           is_tampered_simulation: this.isTamperedState
         };
